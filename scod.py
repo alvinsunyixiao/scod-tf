@@ -13,7 +13,6 @@ class SCOD(tfk.Model):
                  sketch: Sketch,
                  model_vars: T.Optional[T.List[tf.Variable]] = None,
                  num_samples: T.Optional[int] = None,
-                 batch_size: int = 1,
                  num_eigs: int = 100,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -23,15 +22,13 @@ class SCOD(tfk.Model):
         if model_vars is None:
             self.model_vars = model.trainable_variables
         self.num_samples = num_samples
-        if num_samples = None:
+        if num_samples is None:
             self.num_samples = dataset.cardinality()
         self.dataset = dataset
-        self.batch_size = batch_size
         self.sketch = sketch
         self._process_dataset()
 
     def _process_dataset(self):
-        dataset = self.dataset.batch(batch_size)
         for x in dataset:
             batch_L_w = self._compute_sqrt_fisher_w(x)
             self.sketch.batch_update(batch_L_w)
@@ -53,4 +50,3 @@ class SCOD(tfk.Model):
         batch_L_w = tf.transpose(batch_jacobian, (0, 2, 1))
 
         return batch_L_w
-

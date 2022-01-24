@@ -74,7 +74,7 @@ if __name__ == "__main__":
     model = model_gen()
     model.compile("adam", loss=tfk.losses.mse, metrics=tfk.metrics.mse)
 
-    rot_mnist = RotatedMNIST(2, 512)
+    rot_mnist = RotatedMNIST(2, 1024)
     model.fit(
         x=rot_mnist.train_ds,
         validation_data=rot_mnist.test_ds,
