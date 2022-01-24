@@ -50,11 +50,12 @@ def model_gen(img_size: T.Tuple[int, int] = (28, 28)) -> tfk.Sequential:
     reg = tfk.regularizers.l2(1e-4)
     return tfk.Sequential([
         tfk.layers.Input(img_size + (1,)),
-        tfk.layers.Conv2D(16, 5, 2, "same", activation="relu", kernel_initializer="he_normal"),
-        tfk.layers.Conv2D(32, 5, 2, "same", activation="relu", kernel_initializer="he_normal"),
-        tfk.layers.Conv2D(32, 5, 2, "same", activation="relu", kernel_initializer="he_normal"),
+        tfk.layers.Conv2D(16, 5, 2, "same", activation="relu"),
+        tfk.layers.Conv2D(32, 5, 2, "same", activation="relu"),
+        tfk.layers.Conv2D(32, 5, 2, "same", activation="relu"),
+        tfk.layers.Conv2D(32, 5, 2, "same", activation="relu"),
         tfk.layers.Flatten(),
-        tfk.layers.Dense(32, activation="relu"),
+        tfk.layers.Dense(10, activation="relu"),
         tfk.layers.Dense(1),
     ])
 
@@ -62,7 +63,7 @@ if __name__ == "__main__":
     model = model_gen()
     model.compile("adam", loss=tfk.losses.mse, metrics=tfk.metrics.mse)
 
-    rot_mnist = RotatedMNIST(2, 256)
+    rot_mnist = RotatedMNIST(2, 512)
     model.fit(
         x=rot_mnist.train_ds,
         validation_data=rot_mnist.test_ds,
