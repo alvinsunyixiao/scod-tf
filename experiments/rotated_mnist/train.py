@@ -1,4 +1,5 @@
 import math
+import functools
 
 import numpy as np
 import tensorflow as tf
@@ -21,39 +22,49 @@ class RotatedMNIST:
         self.x_train_raw = x_train_raw[y_train_raw == digit]
         self.x_test_raw = x_test_raw[y_test_raw == digit]
 
-        self.train_ds = self.preprocess(self.x_train_raw, train=True)
-        self.test_ds = self.preprocess(self.x_test_raw, train=False)
+        self.train_ds = self.preprocess_train(self.x_train_raw)
+        self.test_ds = self.preprocess_test(self.x_test_raw)
 
-    def augment_sample(self, x, y):
-        # augment image
-        x = x + tf.random.normal(tf.shape(x), stddev=0.1)
-        return x, y
+    def _apply_random_rotation(self, imgs: tf.Tensor) -> T.Tuple[tf.Tensor, tf.Tensor]:
+        rotation = tf.random.normal((tf.shape(imgs)[0],), self.rot_mean, self.rot_std)
+        imgs_rot = tfa.image.rotate(imgs, rotation, interpolation="bilinear")
 
-    def preprocess(self, data: np.ndarray, train: bool = True) -> tf.data.Dataset:
+        return imgs_rot, rotation
+
+    def _normalize_images(self, imgs: tf.Tensor) -> tf.Tensor:
+        return tf.cast(imgs, tf.float32) / 127.5 - 1
+
+    def _map_func(self, imgs: tf.Tensor) -> T.Tuple[tf.Tensor, tf.Tensor]:
+        imgs = self._normalize_images(imgs)
+        return self._apply_random_rotation(imgs)
+
+    def preprocess_train(self, data: np.ndarray) -> tf.data.Dataset:
         # make HWC wich C = 1
         data = data[..., np.newaxis]
-        # apply random rotation
-        rotation = tf.random.normal((data.shape[0],), self.rot_mean, self.rot_std)
-        data_rot = tfa.image.rotate(data, rotation, interpolation="bilinear")
-        # apply normalization
-        data_rot = tf.cast(data_rot, tf.float32) / 127.5 - 1
+        dataset = tf.data.Dataset.from_tensor_slices(data)
+        dataset = dataset.shuffle(dataset.cardinality())
+        dataset = dataset.batch(self.batch_size)
 
-        dataset = tf.data.Dataset.from_tensor_slices((data_rot, rotation))
-        if train:
-            dataset = dataset.shuffle(dataset.cardinality())
-            dataset = dataset.map(self.augment_sample)
+        # apply random rotation
+        dataset = dataset.map(self._map_func, num_parallel_calls=tf.data.AUTOTUNE)
+
+        return dataset
+
+    def preprocess_test(self, data: np.ndarray) -> tf.data.Dataset:
+        data = data[..., np.newaxis]
+        images, rotation = self._map_func(data)
+        dataset = tf.data.Dataset.from_tensor_slices((images, rotation))
         dataset = dataset.batch(self.batch_size)
 
         return dataset
 
 def model_gen(img_size: T.Tuple[int, int] = (28, 28)) -> tfk.Sequential:
-    reg = tfk.regularizers.l2(1e-4)
     return tfk.Sequential([
         tfk.layers.Input(img_size + (1,)),
         tfk.layers.Conv2D(16, 5, 2, "same", activation="relu"),
         tfk.layers.Conv2D(32, 5, 2, "same", activation="relu"),
-        tfk.layers.Conv2D(32, 5, 2, "same", activation="relu"),
-        tfk.layers.Conv2D(32, 5, 2, "same", activation="relu"),
+        tfk.layers.Conv2D(64, 5, 2, "same", activation="relu"),
+        tfk.layers.Conv2D(128, 5, 2, "same", activation="relu"),
         tfk.layers.Flatten(),
         tfk.layers.Dense(10, activation="relu"),
         tfk.layers.Dense(1),
@@ -68,5 +79,9 @@ if __name__ == "__main__":
         x=rot_mnist.train_ds,
         validation_data=rot_mnist.test_ds,
         epochs=300,
-        callbacks=[],
+        callbacks=[
+            tfk.callbacks.TensorBoard("./logs"),
+            tfk.callbacks.ReduceLROnPlateau(patience=20),
+            tfk.callbacks.ModelCheckpoint("./logs/ckpts/{epoch:03d}-{val_loss:.3f}"),
+        ],
     )
