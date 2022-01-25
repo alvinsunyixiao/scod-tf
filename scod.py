@@ -11,11 +11,9 @@ class SCOD(tfk.Model):
     def __init__(self,
                  model: tfk.Model,
                  output_dist: OutputDist,
-                 dataset: tf.data.Dataset,
                  num_samples: int,
                  model_vars: T.Optional[T.List[tf.Variable]] = None,
-                 num_eigs: int = 100,
-                 num_sketches: T.Optional[int] = None,
+                 num_eigs: int = 50,
                  sketch_op_class: T.Type[SketchOp] = SRFTSketchOp,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -29,37 +27,52 @@ class SCOD(tfk.Model):
         self.num_vars = tf.reduce_sum(model_vars_shps).numpy()
 
         self.num_samples = num_samples
-        self.dataset = dataset
 
         self.sketch = Sketch(
-            N=self.num_samples,
-            M=self.num_vars,
+            N=self.num_vars,
+            M=self.num_samples,
             k=num_eigs,
-            T=num_sketches,
             sketch_op_class=sketch_op_class,
         )
 
-        self._process_dataset()
-
-    def _process_dataset(self):
-        for x in tqdm(self.dataset):
+    def process_dataset(self, dataset: tf.data.Dataset):
+        for x in tqdm(dataset):
             batch_L_w = self._compute_sqrt_fisher_w(x)
             self.sketch.batch_update(batch_L_w)
         self.sketch.fixed_rank_eig_approx()
 
-    #@tf.function
+    @tf.function
     def _compute_sqrt_fisher_w(self, x):
         with tf.GradientTape() as tape:
             f = self.base_model(x)
             g = self.output_dist.apply_sqrt_fisher(f)
-        batch_jacobian = tape.jacobian(g, self.model_vars)
+        batch_jacobian_list = tape.jacobian(g, self.model_vars)
+        batch_jacobian = self._batch_jacobian_concat(batch_jacobian_list)
+        batch_L_w = tf.transpose(batch_jacobian, (0, 2, 1))
 
+        return batch_L_w
+
+    def _batch_jacobian_concat(self, batch_jac_list: T.List[tf.Variable]):
         def partial_flatten(input):
             shp = tf.shape(input)
             return tf.reshape(input, (shp[0], shp[1], -1))
 
-        batch_jacobian = tf.nest.map_structure(partial_flatten, batch_jacobian)
-        batch_jacobian = tf.concat(batch_jacobian, axis=-1)
-        batch_L_w = tf.transpose(batch_jacobian, (0, 2, 1))
+        batch_jac_list = tf.nest.map_structure(partial_flatten, batch_jac_list)
+        return tf.concat(batch_jac_list, axis=-1)
 
-        return batch_L_w
+    def build(self, input_shape):
+        self.log_eps = self.add_weight(
+            name="log_eps",
+            initializer=tfk.initializers.zeros(),
+            dtype=tf.float32,
+            trainable=True,
+        )
+
+    def call(self, x):
+        with tf.GradientTape() as tape:
+            y = self.base_model(x)
+        batch_jacobian_list = tape.jacobian(y, self.model_vars)
+        batch_jacobian = self._batch_jacobian_concat(batch_jacobian_list)
+
+        return y, self.sketch.cov_posterior(batch_jacobian, tf.exp(self.log_eps))
+

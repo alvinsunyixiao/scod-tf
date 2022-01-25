@@ -18,7 +18,7 @@ class GaussianSketchOp(SketchOp):
         super().__init__(d, N)
         self.op = tf.Variable(tf.random.normal((d, N)), trainable=False)
 
-    def __call__(self, M: tf.Tensor):
+    def __call__(self, M: tf.Tensor, batched: bool = False):
         return self.op @ M
 
 class SRFTSketchOp(SketchOp):
@@ -58,13 +58,15 @@ class Sketch(tf.Module):
         self.Y = tf.Variable(tf.zeros((self.N, self.r)), trainable=False)
         self.W = tf.Variable(tf.zeros((self.s, self.N)), trainable=False)
 
-        self.eigs = tf.Variable(tf.zeros(2*self.k), trainable=False)
-        self.basis = tf.Variable(tf.zeros((self.N, 2*self.k)), trainable=False)
+        self.eigs = tf.Variable(tf.zeros(self.k), trainable=False)
+        self.basis = tf.Variable(tf.zeros((self.N, self.k)), trainable=False)
 
+    @tf.function
     def update(self, L: tf.Tensor):
         self.Y.assign_add(tf.matmul(L, self.Omega(L), transpose_b=True) / float(self.M))
         self.W.assign_add(tf.matmul(self.Psi(L), L, transpose_b=True) / float(self.M))
 
+    @tf.function
     def batch_update(self, batch_L: tf.Tensor):
         for L in batch_L:
             self.update(L)
@@ -73,7 +75,7 @@ class Sketch(tf.Module):
         # A ~= QX
         Q, _ = tf.linalg.qr(self.Y)
         U, T = tf.linalg.qr(self.Psi(Q))
-        X, _ = tf.linalg.triangular_solve(tf.transpose(U) @ self.W, T)
+        X = tf.linalg.triangular_solve(T, tf.transpose(U) @ self.W)
 
         # A ~= U S U_T (where S is symmetric)
         U, T = tf.linalg.qr(tf.concat([Q, tf.transpose(X)], axis=1))
@@ -83,19 +85,22 @@ class Sketch(tf.Module):
 
         # A ~= U D U_T (where D is diagonal)
         D, V = tf.linalg.eigh(S)
+        # preserve k eigen values / basis
+        D = D[-self.k:]
+        V = V[:, -self.k:]
         D = tf.maximum(D, 0.0) # ensures PSD
         U = U @ V
 
         self.eigs.assign(D)
         self.basis.assign(U)
 
-    def cov_posterior(self, jac: tf.Tensor, eps: float = 1):
+    def cov_posterior(self, batch_jac: tf.Tensor, eps: tf.Tensor):
         Meps = self.M * eps
 
-        scaling = tf.sqrt(self.eigs / (self.egis + 1./(2*Meps)))
-        jac_proj_T = scaling[:, tf.newaxis] * \
-                     tf.matmul(self.basis, jac, transpose_a=True, transpose_b=True)
+        basis = self.basis[tf.newaxis]
+        scaling = tf.sqrt(self.eigs / (self.eigs + 1./(2*Meps)))[tf.newaxis, :, tf.newaxis]
+        batch_jac_proj_T = scaling * tf.matmul(basis, batch_jac, transpose_a=True, transpose_b=True)
 
-        return eps**2 * (tf.matmul(jac, jac, transpose_b=True) - \
-                         tf.matmul(jac_proj_T, jac_proj_T, transpose_a=True))
+        return eps**2 * (tf.matmul(batch_jac, batch_jac, transpose_b=True) - \
+                         tf.matmul(batch_jac_proj_T, batch_jac_proj_T, transpose_a=True))
 
