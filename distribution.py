@@ -11,7 +11,7 @@ class OutputDist(tf.Module):
 class GaussianFixedDiagVar(OutputDist):
     def __init__(self, sigma_diag: np.ndarray = np.ones(1)):
         super().__init__()
-        self.sigma_diag = tf.Variable(sigma_diag, trainable=False)
+        self.sigma_diag = tf.Variable(sigma_diag, trainable=False, dtype=tf.float32)
 
     def apply_sqrt_fisher(self, output):
-        return tf.stop_gradient(output) / tf.sqrt(self.sigma_diag)
+        return output / tf.sqrt(self.sigma_diag)

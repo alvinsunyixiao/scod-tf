@@ -55,11 +55,11 @@ class Sketch(tf.Module):
         self.Omega = sketch_op_class(self.r, self.N)
         self.Psi = sketch_op_class(self.s, self.N)
 
-        self.Y = tf.Variable(tf.zeros(self.N, self.r), trainable=False)
-        self.W = tf.Variable(tf.zeros(self.s, self.N), trainable=False)
+        self.Y = tf.Variable(tf.zeros((self.N, self.r)), trainable=False)
+        self.W = tf.Variable(tf.zeros((self.s, self.N)), trainable=False)
 
         self.eigs = tf.Variable(tf.zeros(2*self.k), trainable=False)
-        self.basis = tf.Variable(tf.zeros(self.N, 2*self.k), trainable=False)
+        self.basis = tf.Variable(tf.zeros((self.N, 2*self.k)), trainable=False)
 
     def update(self, L: tf.Tensor):
         self.Y.assign_add(tf.matmul(L, self.Omega(L), transpose_b=True) / float(self.M))
