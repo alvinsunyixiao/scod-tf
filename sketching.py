@@ -63,9 +63,10 @@ class Sketch(tf.Module):
 
     @tf.function
     def update(self, L: tf.Tensor):
-        self.Y.assign_add(tf.matmul(L, self.Omega(L), transpose_b=True) / float(self.M))
-        self.W.assign_add(tf.matmul(self.Psi(L), L, transpose_b=True) / float(self.M))
+        self.Y.assign_add(tf.matmul(L, self.Omega(L), transpose_b=True))
+        self.W.assign_add(tf.matmul(self.Psi(L), L, transpose_b=True))
 
+    # TODO(alvin): vectorize this maybe?
     @tf.function
     def batch_update(self, batch_L: tf.Tensor):
         for L in batch_L:
@@ -79,8 +80,8 @@ class Sketch(tf.Module):
 
         # A ~= U S U_T (where S is symmetric)
         U, T = tf.linalg.qr(tf.concat([Q, tf.transpose(X)], axis=1))
-        T1 = T[:, :self.k]
-        T2 = T[:, self.k:2*self.k]
+        T1 = T[:, :self.r]
+        T2 = T[:, self.r:]
         S = (T1 @ tf.transpose(T2) + T2 @ tf.transpose(T1)) / 2.
 
         # A ~= U D U_T (where D is diagonal)
@@ -94,13 +95,17 @@ class Sketch(tf.Module):
         self.eigs.assign(D)
         self.basis.assign(U)
 
-    def cov_posterior(self, batch_jac: tf.Tensor, eps: tf.Tensor):
-        Meps = self.M * eps
+    def cov_posterior(self, batch_jac: tf.Tensor, sqrt_prior: tf.Tensor):
+        scaled_batch_jac = batch_jac * sqrt_prior[tf.newaxis, tf.newaxis]
+        JT_S_J = tf.matmul(scaled_batch_jac, scaled_batch_jac, transpose_b=True)
 
-        basis = self.basis[tf.newaxis]
-        scaling = tf.sqrt(self.eigs / (self.eigs + 1./(2*Meps)))[tf.newaxis, :, tf.newaxis]
-        batch_jac_proj_T = scaling * tf.matmul(basis, batch_jac, transpose_a=True, transpose_b=True)
+        UT_S = tf.transpose(self.basis) * sqrt_prior[tf.newaxis]**2
+        UT_S_U = UT_S @ self.basis
+        A = tf.linalg.diag(1.0 / self.eigs) + UT_S_U
+        L = tf.linalg.cholesky(A)
+        Linv_UT_S = tf.linalg.triangular_solve(L, UT_S)
+        scaled_batch_jac_2 = tf.matmul(batch_jac, Linv_UT_S[tf.newaxis], transpose_b=True)
+        JT_S2_J = tf.matmul(scaled_batch_jac_2, scaled_batch_jac_2, transpose_b=True)
 
-        return eps**2 * (tf.matmul(batch_jac, batch_jac, transpose_b=True) - \
-                         tf.matmul(batch_jac_proj_T, batch_jac_proj_T, transpose_a=True))
+        return JT_S_J - JT_S2_J
 

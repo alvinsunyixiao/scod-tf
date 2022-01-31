@@ -6,6 +6,7 @@ from tqdm import tqdm
 
 from distribution import OutputDist
 from sketching import Sketch, SketchOp, SRFTSketchOp
+from priors import WeightPrior, PerVarPrior
 
 class SCOD(tfk.Model):
     def __init__(self,
@@ -15,6 +16,7 @@ class SCOD(tfk.Model):
                  model_vars: T.Optional[T.List[tf.Variable]] = None,
                  num_eigs: int = 50,
                  sketch_op_class: T.Type[SketchOp] = SRFTSketchOp,
+                 prior_class: T.Type[WeightPrior] = PerVarPrior,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.base_model = model
@@ -34,6 +36,7 @@ class SCOD(tfk.Model):
             k=num_eigs,
             sketch_op_class=sketch_op_class,
         )
+        self.prior = prior_class(self.model_vars)
 
     def process_dataset(self, dataset: tf.data.Dataset):
         for x in tqdm(dataset):
@@ -60,19 +63,12 @@ class SCOD(tfk.Model):
         batch_jac_list = tf.nest.map_structure(partial_flatten, batch_jac_list)
         return tf.concat(batch_jac_list, axis=-1)
 
-    def build(self, input_shape):
-        self.log_eps = self.add_weight(
-            name="log_eps",
-            initializer=tfk.initializers.zeros(),
-            dtype=tf.float32,
-            trainable=True,
-        )
-
     def call(self, x):
         with tf.GradientTape() as tape:
             y = self.base_model(x)
         batch_jacobian_list = tape.jacobian(y, self.model_vars)
         batch_jacobian = self._batch_jacobian_concat(batch_jacobian_list)
+        sqrt_prior = self.prior.broadcast()
 
-        return y, self.sketch.cov_posterior(batch_jacobian, tf.exp(self.log_eps))
+        return y, self.sketch.cov_posterior(batch_jacobian, sqrt_prior)
 

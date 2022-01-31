@@ -21,6 +21,7 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     model = tfk.models.load_model(args.model)
+
     rot_mnist = RotatedMNIST(2, 128)
     train_ds = rot_mnist.train_ds.map(lambda x, y: x).repeat(args.repeat)
 
