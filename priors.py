@@ -5,6 +5,8 @@ import tensorflow as tf
 class WeightPrior(tf.Module):
     def __init__(self, model_vars: T.List[tf.Variable] = []):
         super().__init__(name=self.__class__.__name__)
+        # dummy variable for type inference purposes
+        self.log_priors = tf.Variable(0.)
 
     def broadcast(self) -> tf.Tensor:
         """
@@ -15,9 +17,9 @@ class WeightPrior(tf.Module):
 class ScalarPrior(WeightPrior):
     def __init__(self, model_vars: T.List[tf.Variable]):
         super().__init__()
-        self.log_prior = tf.Variable(
+        self.log_priors = tf.Variable(
             0.0,
-            name="log_prior",
+            name="log_priors",
             trainable=True,
         )
         self.num_weights = sum(map(lambda var: math.prod(var.shape)), model_vars)

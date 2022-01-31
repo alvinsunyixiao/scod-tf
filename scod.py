@@ -1,8 +1,9 @@
 import typing as T
 import tensorflow as tf
 import tensorflow.keras as tfk
+from tensorflow_probability import distributions as tfd
 
-from tqdm import tqdm
+from tqdm import tqdm, trange
 
 from distribution import OutputDist
 from sketching import Sketch, SketchOp, SRFTSketchOp
@@ -62,6 +63,30 @@ class SCOD(tfk.Model):
 
         batch_jac_list = tf.nest.map_structure(partial_flatten, batch_jac_list)
         return tf.concat(batch_jac_list, axis=-1)
+
+    @tf.function
+    def _optimize_prior_once(self, data, optimizer: tfk.optimizers.Optimizer):
+        inputs, labels = data
+        with tf.GradientTape() as tape:
+            y, S = self(inputs)
+            distribution = tfd.MultivariateNormalTriL(y, tf.linalg.cholesky(S))
+            if tf.rank(labels) == 1:
+                labels = labels[:, tf.newaxis]
+            log_ll = distribution.log_prob(labels)
+            loss = tf.reduce_mean(-log_ll)
+
+        grads = tape.gradient(loss, self.prior.log_priors)
+        optimizer.apply_gradients([(grads, self.prior.log_priors)])
+
+        return loss
+
+    def calibrate_prior(self, dataset: tf.data.Dataset, num_epochs: int = 100):
+        optimizer = tfk.optimizers.Adam()
+        for epoch in range(num_epochs):
+            print(f"-------- Epoch {epoch} --------")
+            for data in dataset:
+                loss = self._optimize_prior_once(data, optimizer)
+                print(loss)
 
     def call(self, x):
         with tf.GradientTape() as tape:

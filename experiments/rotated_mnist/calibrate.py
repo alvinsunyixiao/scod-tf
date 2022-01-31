@@ -25,6 +25,7 @@ if __name__ == "__main__":
     rot_mnist = RotatedMNIST(2, 128)
     train_ds = rot_mnist.train_ds.map(lambda x, y: x).repeat(args.repeat)
 
+    # calibrate input data distribution
     output_dist = GaussianFixedDiagVar()
     scod_model = SCOD(
         model=model,
@@ -33,5 +34,13 @@ if __name__ == "__main__":
         num_eigs=40,
     )
     scod_model.process_dataset(train_ds)
+
+    # calibrate prior scales
+    cal_ds = RotatedMNIST(2, 32).test_ds
+    cal_ds = cal_ds.concatenate(RotatedMNIST(4, 32).test_ds)
+    cal_ds = cal_ds.concatenate(RotatedMNIST(9, 32).test_ds)
+    cal_ds = cal_ds.shuffle(cal_ds.cardinality())
+    scod_model.calibrate_prior(cal_ds)
+
     scod_model(model.input)
     scod_model.save(args.output)
