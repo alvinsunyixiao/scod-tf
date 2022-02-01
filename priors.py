@@ -22,10 +22,10 @@ class ScalarPrior(WeightPrior):
             name="log_priors",
             trainable=True,
         )
-        self.num_weights = sum(map(lambda var: math.prod(var.shape)), model_vars)
+        self.num_weights = sum(map(lambda var: math.prod(var.shape), model_vars))
 
     def broadcast(self) -> tf.Tensor:
-        return tf.tile(tf.exp(self.log_prior[tf.newaxis]), (self.num_weights,))
+        return tf.tile(tf.exp(self.log_priors[tf.newaxis]), (self.num_weights,))
 
 class PerVarPrior(WeightPrior):
     def __init__(self, model_vars: T.List[tf.Variable]):
@@ -42,7 +42,7 @@ class PerVarPrior(WeightPrior):
 
 class IndependentPrior(WeightPrior):
     def __init__(self, model_vars: T.List[tf.Variable]):
-        num_weights = sum(map(math.prod, weight_shapes))
+        num_weights = sum(map(lambda var: math.prod(var.shape), model_vars))
         self.log_priors = tf.Variable(
             tf.zeros(num_weights),
             name="log_priors",

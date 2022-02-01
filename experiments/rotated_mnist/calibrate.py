@@ -4,7 +4,6 @@ import tensorflow.keras as tfk
 
 from distribution import GaussianFixedDiagVar
 from scod import SCOD
-from sketching import Sketch
 from experiments.rotated_mnist.train import RotatedMNIST
 
 def parse_args():

@@ -65,28 +65,42 @@ class SCOD(tfk.Model):
         return tf.concat(batch_jac_list, axis=-1)
 
     @tf.function
-    def _optimize_prior_once(self, data, optimizer: tfk.optimizers.Optimizer):
+    def _optimize_prior_once(self, data, sigma_scale):
         inputs, labels = data
         with tf.GradientTape() as tape:
             y, S = self(inputs)
-            distribution = tfd.MultivariateNormalTriL(y, tf.linalg.cholesky(S))
+            distribution = tfd.MultivariateNormalTriL(y, sigma_scale * tf.linalg.cholesky(S))
             if tf.rank(labels) == 1:
                 labels = labels[:, tf.newaxis]
             log_ll = distribution.log_prob(labels)
             loss = tf.reduce_mean(-log_ll)
 
         grads = tape.gradient(loss, self.prior.log_priors)
-        optimizer.apply_gradients([(grads, self.prior.log_priors)])
 
-        return loss
+        return loss, grads
 
-    def calibrate_prior(self, dataset: tf.data.Dataset, num_epochs: int = 100):
-        optimizer = tfk.optimizers.Adam()
-        for epoch in range(num_epochs):
-            print(f"-------- Epoch {epoch} --------")
+    def calibrate_prior(self,
+        dataset: tf.data.Dataset,
+        sigma_scale: float = 1.0,
+        num_epochs: int = 100,
+        learning_rate: T.Union[float, tfk.optimizers.schedules.LearningRateSchedule] = 1e-3,
+    ):
+        optimizer = tfk.optimizers.Adam(learning_rate)
+        sigma_scale = tf.constant(sigma_scale)
+        losses = []
+        pbar = trange(num_epochs)
+        for epoch in pbar:
+            sum_loss = 0.0
+            cnt = 0
             for data in dataset:
-                loss = self._optimize_prior_once(data, optimizer)
-                print(loss)
+                loss, grads = self._optimize_prior_once(data, sigma_scale)
+                optimizer.apply_gradients([(grads, self.prior.log_priors)])
+                sum_loss += loss
+                cnt += 1
+            losses.append((sum_loss / cnt).numpy())
+            pbar.set_postfix({"Loss": losses[-1], "lr": optimizer._decayed_lr(tf.float32).numpy()})
+
+        return losses
 
     def call(self, x):
         with tf.GradientTape() as tape:
