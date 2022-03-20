@@ -14,4 +14,14 @@ class GaussianFixedDiagVar(OutputDist):
         self.sigma_diag = tf.Variable(sigma_diag, trainable=False, dtype=tf.float32)
 
     def apply_sqrt_fisher(self, output):
-        return output / tf.sqrt(self.sigma_diag)
+        mu = output
+        if isinstance(output, dict):
+            mu = output["mu"]
+        return mu / self.sigma_diag
+
+class GaussianDynamicDiagVar(OutputDist):
+    def apply_sqrt_fisher(self, output):
+        mu = output["mu"]
+        sigma = tf.stop_gradient(output["sigma"])
+
+        return mu / sigma
